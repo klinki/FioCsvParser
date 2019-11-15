@@ -5,6 +5,24 @@ open System.Text
 open System.Text.RegularExpressions
 open System
 
+module Stocks =
+    type BaseTransfer = { Date: DateTime; Amount: decimal; Currency: string }
+    type BaseStockTrade = { Date: DateTime; Ticker: string; Count: int; Price: decimal; Fee: decimal; Total: decimal; Currency: string; }
+    type StockDividend = { Date: DateTime; Ticker: string; Amount: decimal; Fee: decimal; Currency: string; Tax: decimal; }
+
+    type StockTrade =
+        | Buy of BaseStockTrade
+        | Sell of BaseStockTrade
+
+    type MoneyTransfer =
+        | Deposit of BaseTransfer
+        | Withdrawal of BaseTransfer
+
+    type TransactionType =
+        | TransferType of MoneyTransfer
+        | StockTradeType of StockTrade
+        | DividendType of StockDividend
+
 module Fio =
     Encoding.RegisterProvider CodePagesEncodingProvider.Instance
 
@@ -12,34 +30,13 @@ module Fio =
 
     type TradeRows = CsvProvider<csvDefinitionFile, Separators = ";", SkipRows = 3, HasHeaders = true, Encoding = "1250", Culture = "cs-CZ">
     
-    type FioDividendTypes = 
+    type FioData =
+        | Transfer of TradeRows.Row
+        | Trade of TradeRows.Row
         | DividendAmount of TradeRows.Row
         | DividendTax of TradeRows.Row
         | DividendFee of TradeRows.Row
-
-    type FioData = 
-        | Transfer of TradeRows.Row
-        | Trade of TradeRows.Row
-        | Dividend of FioDividendTypes
         | Other of TradeRows.Row
-
-    type AmountWithCurrency = { Amount: decimal; Currency: string }
-
-    type BaseStockTrade = { Date: DateTime; Ticker: string; Count: int; Price: decimal; Fee: decimal; Total: decimal; Currency: string; }
-    type StockDividend = { Date: DateTime; Ticker: string; Amount: decimal; Fee: decimal; Currency: string; Tax: decimal; }
-    
-    type StockTrade = 
-        | Buy of BaseStockTrade
-        | Sell of BaseStockTrade
-
-    type Transfer = 
-        | Deposit of AmountWithCurrency
-        | Withdrawal of AmountWithCurrency
-
-    type SingleRowType = 
-        | TransferType of Transfer
-        | StockTradeType of StockTrade
-        | DividendType of StockDividend
 
     let (|Regex|_|) pattern input =
         let m = Regex.Match(input, pattern)
@@ -51,54 +48,94 @@ module Fio =
             | Some headers -> for header in headers do printf "%s " header
             | None -> printf "No headers"
 
+    let mapRow (row: TradeRows.Row) =
+        match row.``Text FIO`` with
+            | Regex @"Nákup" [] -> Trade row
+            | Regex @"Prodej" [] -> Trade row
+            | Regex @"Převod" [] -> Transfer row
+            | Regex @"Dividenda" [] -> DividendAmount row
+            | Regex @"Vloženo" [] ->  DividendAmount row
+            | Regex @"Poplatek" [] -> DividendFee row
+            | Regex @"Daň" [] -> DividendTax row
+            | Regex @"ADR Fee" [] -> DividendFee row
+            | _ -> Other row
+
     let testFun =
         let data = TradeRows.Load csvDefinitionFile
-        
-        let mapRow (row: TradeRows.Row) = 
-            match row.``Text FIO`` with
-                | Regex @"Nákup" [] -> Trade row
-                | Regex @"Prodej" [] -> Trade row
-                | Regex @"Převod" [] -> Transfer row
-                | Regex @"Dividenda" [] -> Dividend (DividendAmount row)
-                | Regex @"Vloženo" [] -> Dividend (DividendAmount row)
-                | Regex @"Poplatek" [] -> Dividend (DividendFee row)
-                | Regex @"Daň" [] -> Dividend (DividendTax row)
-                | Regex @"ADR Fee" [] -> Dividend (DividendFee row)
-                | _ -> Other row
+
+        let reduceDivCollection acc el =
+            match el with
+                | DividendAmount amount -> { acc with Amount = decimal amount.Počet }
+                | DividendTax tax -> { acc with Tax = decimal tax.Počet }
+                | DividendFee fee -> { acc with Fee = decimal fee.Počet }
+                | _ -> acc
+
+        let groupByDividendType item =
+            match item with
+                | DividendAmount | DividendTax | DividendFee _ -> true
+                | _ -> false
+
+        let filterOther item =
+            match item with
+                | Other -> false
+                | _ -> true
+
+        let getFee (row: TradeRows.Row) =
+            match row.```Měna``` with
+                | "USD" -> decimal row.```Poplatky v USD```
+                | "CZK" -> decimal row.```Poplatky v CZK```
+                | "EUR" -> decimal row.```Poplatky v EUR```
+                | _     -> 0m
+
+        let convertToBaseTrade (row: TradeRows.Row) =
+            {
+                Date = row.``Datum obchodu``
+                Ticker = row.Symbol
+                Count = row.```Počet```
+                Price = decimal row.```Cena```
+                Fee = getFee row
+                Total = decimal row.```Cena```
+                Currency = row.```Měna```
+            }
+
+        let convertToTrade item =
+            let baseTrade = convertToBaseTrade item
+            let baseTradeWithTotal = { baseTrade with Total = (baseTrade.Price * baseTrade.Count) + baseTrade.Fee }
+            match item.```Směr``` with
+                | Regex @"Nákup" [] -> Buy(baseTradeWithTotal)
+                | Regex @"Prodej" [] -> Sell(baseTradeWithTotal)
+
+        let convertToTransfer item =
 
 
-        let unwrapDividend item = match item with
-                                  | Dividend div -> div
+        let mapValidTypes item =
+            match item with
+                | Trade row -> convertToTrade row
+                | Transfer row -> convertToTransfer row
 
-        let reduceDivCollection acc el = match unwrapDividend el with
-                                        | DividendAmount amount -> { acc with Amount = decimal amount.Počet }
-                                        | DividendTax tax -> { acc with Tax = decimal tax.Počet }
-                                        | DividendFee fee -> { acc with Fee = decimal fee.Počet }
-                                        | _ -> acc       
+        let getDefaultDividend: StockDividend date symbol = {
+            Date = date |> Option.defaultValue(new DateTime())
+            Ticker = symbol
+            Amount = 0m
+            Fee = 0m
+            Tax = 0m
+            Currency = ""
+        }
+
+        let mapToStockTypes groupedByDividends defaultDividend =
+            match groupedByDividends with
+                    | (true, dividends) -> dividends |> Seq.fold reduceDivCollection defaultDividend
+                    | (false, rest) -> rest |> Seq.filter filterOther
+                                            |> Seq.map mapValidTypes
 
         let grouped = data.Rows |> Seq.groupBy (fun row -> (row.``Datum obchodu``, row.Symbol))
                                 |> Seq.map (fun tuple -> 
                                     let ((date, symbol), data) = tuple
                                     let mapped = data |> Seq.map mapRow 
-                                    let defaultDividend: StockDividend = {
-                                        Date = date |> Option.defaultValue(new DateTime())
-                                        Ticker = symbol
-                                        Amount = 0m
-                                        Fee = 0m
-                                        Tax = 0m
-                                        Currency = ""
-                                    }
-                                    let result = mapped |> Seq.groupBy (fun item -> match item with 
-                                                                                    | Dividend _ -> true
-                                                                                    | _ -> false
-                                                                        )
-                                                        |> Seq.map (fun grouped -> match grouped with
-                                                                                    | (true, dividends) -> dividends |> Seq.fold reduceDivCollection defaultDividend 
-                                                                                    | (false, rest) -> rest
-                                                                    )
+                                    let result = mapped |> Seq.groupBy groupByDividendType
+                                                        |> Seq.map mapToStockTypes getDefaultDividend date symbol
                                     result
                                     )
-                                // )
 
         let classified = data.Rows |> Seq.map mapRow
         
