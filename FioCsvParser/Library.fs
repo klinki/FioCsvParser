@@ -30,11 +30,12 @@ module Fio =
 
     let [<Literal>] csvDefinitionFile = __SOURCE_DIRECTORY__ + "/Data/Obchody.csv"
 
-    type TradeRows = CsvProvider<csvDefinitionFile, Separators = ";", SkipRows = 3, HasHeaders = true, Encoding = "1250", Culture = "cs-CZ">
+    type TradeRows = CsvProvider<csvDefinitionFile, Separators = ";", SkipRows = 3, HasHeaders = true, Encoding = "1250", Culture = "cs-CZ", IgnoreErrors = true>
     
     type FioData =
         | Transfer of TradeRows.Row
         | Trade of TradeRows.Row
+        | MaskedDividendAmount of TradeRows.Row
         | DividendAmount of TradeRows.Row
         | DividendTax of TradeRows.Row
         | DividendFee of TradeRows.Row
@@ -56,7 +57,7 @@ module Fio =
             | Regex @"Prodej" [] -> Trade row
             | Regex @"Převod" [] -> Transfer row
             | Regex @"Dividenda" [] -> DividendAmount row
-            | Regex @"Vloženo" [] ->  DividendAmount row
+            | Regex @"Vloženo" [] ->  MaskedDividendAmount row
             | Regex @"Poplatek" [] -> DividendFee row
             | Regex @"Daň" [] -> DividendTax row
             | Regex @"ADR Fee" [] -> DividendFee row
@@ -65,16 +66,20 @@ module Fio =
     let testFun =
         let data = TradeRows.Load csvDefinitionFile
 
+        let parseDecimal item = Decimal.Parse item
+        let parseInt item = Decimal.Parse item |> Decimal.ToInt32
+
         let reduceDivCollection acc el =
             match el with
-                | DividendAmount amount -> { acc with Amount = decimal amount.Počet }
-                | DividendTax tax -> { acc with Tax = decimal tax.Počet }
-                | DividendFee fee -> { acc with Fee = decimal fee.Počet }
+                | DividendAmount amount -> { acc with Amount = parseDecimal amount.Počet; Currency = amount.Měna }
+                | DividendTax tax -> { acc with Tax = parseDecimal tax.Počet }
+                | DividendFee fee -> { acc with Fee = parseDecimal fee.Počet }
+                | MaskedDividendAmount amount -> { acc with Amount = parseDecimal amount.``Objem v CZK``; Currency = amount.Měna}
                 | _ -> acc
 
         let groupByDividendType item =
             match item with
-                | DividendAmount _ | DividendTax _ | DividendFee _ -> true
+                | MaskedDividendAmount _ | DividendAmount _ | DividendTax _ | DividendFee _ -> true
                 | _ -> false
 
         let filterOther item =
@@ -91,16 +96,16 @@ module Fio =
 
         let getAmount (row: TradeRows.Row) =
             match row.``Měna`` with
-                | "CZK" -> decimal row.``Objem v USD``
-                | "USD" -> decimal row.``Objem v CZK``
-                | "EUR" -> decimal row.``Objem v EUR``
+                | "USD" -> Decimal row.``Objem v USD``
+                | "CZK" -> parseDecimal row.``Objem v CZK``
+                | "EUR" -> parseDecimal row.``Objem v EUR``
                 | _     -> 0m
 
         let convertToBaseTrade (row: TradeRows.Row) =
             {
                 Date = row.``Datum obchodu`` |> Option.defaultValue(new DateTime())
                 Ticker = row.Symbol
-                Count = int row.``Počet``
+                Count = parseInt row.``Počet``
                 Price = decimal row.``Cena``
                 Fee = getFee row
                 Total = decimal row.``Cena``
@@ -120,6 +125,10 @@ module Fio =
             match item.``Směr`` with
                 | Regex @"Nákup" [] -> Buy(baseTradeWithTotal)
                 | Regex @"Prodej" [] -> Sell(baseTradeWithTotal)
+                | Regex @"Převod" [] -> match item.``Text FIO`` with
+                                        | Regex @"Nákup" [] -> Buy(baseTradeWithTotal)
+                                        | Regex @"Prodej" [] -> Sell(baseTradeWithTotal)
+                    
 
         let convertToTransfer item =
             let baseTransfer = convertToBaseTransfer item
