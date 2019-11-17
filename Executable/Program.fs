@@ -6,5 +6,5 @@ open FioCsvParser
 [<EntryPoint>]
 let main argv =
     printfn "Hello World from F#!"
-    DomainMapper.testFun()
+    // DomainMapper.testFun()
     0 // return an integer exit code

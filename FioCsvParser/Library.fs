@@ -5,7 +5,7 @@ open System.Text
 open System.Text.RegularExpressions
 open System
 
-module Fio =
+module internal Fio =
     Encoding.RegisterProvider CodePagesEncodingProvider.Instance
 
     let [<Literal>] csvDefinitionFile = __SOURCE_DIRECTORY__ + "/Data/Obchody.csv"
@@ -43,7 +43,7 @@ module Fio =
             | Regex @"ADR Fee" [] -> DividendFee row
             | _ -> Other row
 
-module DomainMapper =
+module internal DomainMapper =
     open Fio
 
     let parseDecimal item = Decimal.Parse item
