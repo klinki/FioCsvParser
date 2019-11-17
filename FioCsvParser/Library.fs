@@ -149,6 +149,7 @@ module DomainMapper =
                               |> Seq.concat
 
     let parseFioFile (fileName: string) =
+        Encoding.RegisterProvider CodePagesEncodingProvider.Instance
         let data = TradeRows.Load fileName
         groupRows data.Rows
 
@@ -170,3 +171,7 @@ module DomainMapper =
                 | Trade trade -> printfn "Trade: %s" trade.``Text FIO``
                 | Other data -> printfn "Other: %s" data.``Text FIO``
                 | _ -> printfn "Unknown"
+
+
+type CsvParser =
+    static member ParseFile(filename) = DomainMapper.parseFioFile filename

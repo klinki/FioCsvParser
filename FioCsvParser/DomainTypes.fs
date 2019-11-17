@@ -18,6 +18,3 @@ type TransactionType =
     | TransferType of MoneyTransfer
     | StockTradeType of StockTrade
     | DividendType of StockDividend
-
-type FioCsvParser =
-    static member ParseFile(filename) = parseFioFile fileName

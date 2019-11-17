@@ -5,7 +5,7 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <Compile Include="PublicApi.fs" />
+    <Compile Include="DomainTypes.fs" />
     <None Include="Data\Obchody.csv" />
     <Compile Include="Library.fs" />
   </ItemGroup>
