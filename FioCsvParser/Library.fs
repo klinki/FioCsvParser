@@ -153,7 +153,7 @@ module DomainMapper =
         let data = TradeRows.Load fileName
         groupRows data.Rows
 
-    let testFun =
+    let testFun() =
         let data = TradeRows.Load csvDefinitionFile
         let grouped = groupRows data.Rows
         
