@@ -19,6 +19,9 @@ module internal Fio =
         | DividendAmount of TradeRows.Row
         | DividendTax of TradeRows.Row
         | DividendFee of TradeRows.Row
+        | DividendAdrFee of TradeRows.Row
+        | SqueezeOut of TradeRows.Row
+        | SpinOff of TradeRows.Row
         | Other of TradeRows.Row
 
     let (|Regex|_|) pattern input =
@@ -31,6 +34,7 @@ module internal Fio =
             | Some headers -> for header in headers do printf "%s " header
             | None -> printf "No headers"
 
+    (* Map row to entity *)
     let mapRow (row: TradeRows.Row) =
         match row.``Text FIO`` with
             | Regex @"Nákup" [] -> Trade row
@@ -40,7 +44,11 @@ module internal Fio =
             | Regex @"Vloženo" [] ->  MaskedDividendAmount row
             | Regex @"Poplatek" [] -> DividendFee row
             | Regex @"Daň" [] -> DividendTax row
-            | Regex @"ADR Fee" [] -> DividendFee row
+            | Regex @"ADR Fee" [] -> DividendAdrFee row
+            | Regex @".* - Výplata úrokového výnosu" [] -> DividendAmount row
+            | Regex @"Squeeze out" [] -> SqueezeOut row
+            | Regex @"Čistá cena" [] -> Trade row
+            | Regex @"Spin-off" [] -> SpinOff row
             | _ -> Other row
 
 module internal DomainMapper =
@@ -49,17 +57,9 @@ module internal DomainMapper =
     let parseDecimal item = Decimal.Parse item
     let parseInt item = Decimal.Parse item |> Decimal.ToInt32
 
-    let reduceDivCollection acc el =
-        match el with
-            | DividendAmount amount -> { acc with Amount = parseDecimal amount.Počet; Currency = amount.Měna }
-            | DividendTax tax -> { acc with Tax = parseDecimal tax.Počet }
-            | DividendFee fee -> { acc with Fee = parseDecimal fee.Počet }
-            | MaskedDividendAmount amount -> { acc with Amount = parseDecimal amount.``Objem v CZK``; Currency = amount.Měna}
-            | _ -> acc
-
     let groupByDividendType item =
         match item with
-            | MaskedDividendAmount _ | DividendAmount _ | DividendTax _ | DividendFee _ -> true
+            | MaskedDividendAmount _ | DividendAmount _ | DividendTax _ | DividendFee _ | DividendAdrFee _ -> true
             | _ -> false
 
     let filterOther item =
@@ -80,6 +80,15 @@ module internal DomainMapper =
             | "CZK" -> parseDecimal row.``Objem v CZK``
             | "EUR" -> parseDecimal row.``Objem v EUR``
             | _     -> 0m
+
+    let reduceDivCollection acc el =
+        match el with
+            | DividendAmount amount -> { acc with Amount = parseDecimal amount.Počet; Currency = amount.Měna }
+            | DividendTax tax -> { acc with Tax = parseDecimal tax.Počet }
+            | DividendAdrFee fee -> { acc with Fee = parseDecimal fee.Počet }
+            | DividendFee fee -> { acc with Fee = getFee fee ; Currency = fee.Měna }
+            | MaskedDividendAmount amount -> { acc with Amount = parseDecimal amount.``Objem v CZK``; Currency = amount.Měna}
+            | _ -> acc
 
     let convertToBaseTrade (row: TradeRows.Row) =
         {
@@ -108,7 +117,11 @@ module internal DomainMapper =
             | Regex @"Převod" [] -> match item.``Text FIO`` with
                                     | Regex @"Nákup" [] -> Buy(baseTradeWithTotal)
                                     | Regex @"Prodej" [] -> Sell(baseTradeWithTotal)
-                    
+
+    let parseSpinoff item =
+        let baseTrade = convertToBaseTrade item
+        let baseTradeWithTotal = { baseTrade with Total = 0m; Ticker = item.Měna; Price = 0m }
+        Buy(baseTradeWithTotal)
 
     let convertToTransfer item =
         let baseTransfer = convertToBaseTransfer item
@@ -120,6 +133,8 @@ module internal DomainMapper =
         match item with
             | Trade row -> StockTradeType(convertToTrade row)
             | Transfer row -> TransferType(convertToTransfer row)
+            | SqueezeOut row -> StockTradeType(convertToTrade row)
+            | SpinOff row -> StockTradeType(parseSpinoff row)
 
     let getDefaultDividend date symbol = {
         Date = date |> Option.defaultValue(new DateTime())
@@ -137,6 +152,7 @@ module internal DomainMapper =
                                         |> Seq.map mapValidTypes
                 | _ -> Seq.empty
 
+    (* Group rows by date and symbol *)
     let groupRows rows = rows |> Seq.groupBy (fun (row: TradeRows.Row) -> (row.``Datum obchodu``, row.Symbol))
                               |> Seq.map (fun tuple -> 
                                 let ((date, symbol), data) = tuple
