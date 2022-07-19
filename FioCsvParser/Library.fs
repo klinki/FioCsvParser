@@ -164,10 +164,37 @@ module internal DomainMapper =
                                 )
                               |> Seq.concat
 
+    (* This functions groups 2 DividendTypes when one directly follows another and one has fee, other doesn't and one has ticker and other doesn't *)
+    let groupRelatedDividendPairs items =
+        (* Merge dividend type without fee with dividend type with fee into one dividend type with fee *)
+        let addDividendFeeToDividend a b 
+            = match (a, b) with
+                | (DividendType divA, DividendType divB) when divA.Fee = 0m && divB.Fee > 0m -> DividendType { divA with Fee = divB.Fee }
+                | (DividendType divA, DividendType divB) when divB.Fee = 0m && divA.Fee > 0m -> DividendType { divB with Fee = divA.Fee }
+
+        (* functional approach to go through list and group together items matching the pairing condition *)
+        let removePairs pairing items =
+          let rec loop acc = function
+            | a :: b :: t when pairing a b -> loop ((addDividendFeeToDividend a b)::acc) t
+            | h :: t -> loop (h::acc) t
+            | [] -> List.rev acc
+          loop [] (List.ofSeq items)
+
+        (* Identify dividend and dividend fee pairs *)
+        let pairDividendTypes a b =
+            match (a,b) with 
+                | (DividendType divA, DividendType divB) -> (divA.Date = divB.Date && divA.Currency = divB.Currency)
+                                                            && (divA.Fee = 0m  || divB.Fee = 0m) 
+                                                            && (divA.Ticker.Length = 0 || divB.Ticker.Length = 0)
+                | _ -> false
+    
+        items |> removePairs pairDividendTypes
+
+
     let parseFioFile (fileName: string) =
         Encoding.RegisterProvider CodePagesEncodingProvider.Instance
         let data = TradeRows.Load fileName
-        groupRows data.Rows
+        groupRows data.Rows |> groupRelatedDividendPairs
 
     let testFun() =
         let data = TradeRows.Load csvDefinitionFile
