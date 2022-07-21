@@ -2,6 +2,11 @@
 
   <PropertyGroup>
     <TargetFramework>netstandard2.0</TargetFramework>
+    <Authors>David Klingenberg</Authors>
+    <Version>0.0.2-alpha</Version>
+    <PackageId>FioBrokerCsvParser</PackageId>
+    <PackageLicenseExpression>MIT</PackageLicenseExpression>
+    <Description>Library used to parse FIO Broker .csv file and return entities like Dividend, Trade, Transfer and so on...</Description>
   </PropertyGroup>
 
   <ItemGroup>

@@ -196,6 +196,16 @@ module internal DomainMapper =
         let data = TradeRows.Load fileName
         groupRows data.Rows |> groupRelatedDividendPairs
 
+    let parseFioStream (stream: IO.Stream) = 
+        Encoding.RegisterProvider CodePagesEncodingProvider.Instance
+        let data = TradeRows.Load stream
+        groupRows data.Rows |> groupRelatedDividendPairs
+
+    let parseInputString (input: string) =
+        Encoding.RegisterProvider CodePagesEncodingProvider.Instance
+        let data = TradeRows.Parse input
+        groupRows data.Rows |> groupRelatedDividendPairs
+
     let testFun() =
         let data = TradeRows.Load csvDefinitionFile
         let grouped = groupRows data.Rows
@@ -215,6 +225,7 @@ module internal DomainMapper =
                 | Other data -> printfn "Other: %s" data.``Text FIO``
                 | _ -> printfn "Unknown"
 
-
 type CsvParser =
-    static member ParseFile(filename) = DomainMapper.parseFioFile filename
+    static member Parse(filename: string) = DomainMapper.parseFioFile filename
+    static member Parse(input: IO.Stream) = DomainMapper.parseFioStream input
+    static member ParseString(input) = DomainMapper.parseInputString input
