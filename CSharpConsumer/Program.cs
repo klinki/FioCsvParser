@@ -8,7 +8,7 @@ namespace CSharpConsumer
         static void Main(string[] args)
         {
             string filename = @"c:\projects\own\FioCsvParser\FioCsvParser\Data\fio-broker-obchody.csv";
-            var result = CsvParser.ParseFile(filename);
+            var result = CsvParser.Parse(filename);
 
             foreach (var item in result)
             {
