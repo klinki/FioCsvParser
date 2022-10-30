@@ -10,8 +10,8 @@ module internal Fio =
 
     let [<Literal>] csvDefinitionFile = __SOURCE_DIRECTORY__ + "/Data/Obchody.csv"
 
-    type TradeRows = CsvProvider<csvDefinitionFile, Separators = ";", SkipRows = 3, HasHeaders = true, Encoding = "1250", Culture = "cs-CZ", IgnoreErrors = true>
-    
+    type TradeRows = CsvProvider<csvDefinitionFile, Separators = ";", SkipRows = 3, HasHeaders = true, Culture = "cs-CZ", IgnoreErrors = true>
+
     type FioData =
         | Transfer of TradeRows.Row
         | Trade of TradeRows.Row
